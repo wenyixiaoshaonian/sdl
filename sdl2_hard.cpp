@@ -27,6 +27,9 @@ static uint8_t *video_dst_data[4] = {NULL};
 static AVCodecContext *pCodecCtx_v= NULL;
 static AVCodecContext *pCodecCtx_a= NULL;
 
+#define SFM_REFRESH_EVENT  (SDL_USEREVENT + 1)
+#define SFM_BREAK_EVENT  (SDL_USEREVENT + 2)
+
 
 //视频刷新线程 40ms发送一个刷新事件
 int sfp_refresh_thread(void *opaque){
@@ -301,7 +304,7 @@ int main_hard(const char *src)
 
                 //-------------------------------sdl-----------------------------------------
                 //填充材质
-                SDL_UpdateTexture(tex,NULL,video_dst_data[0],video_dst_linesize);
+                SDL_UpdateTexture(tex,NULL,video_dst_data[0],video_dst_linesize[0]);
                 //清空渲染器
                 SDL_RenderClear(ren);
                 //将材质复制到渲染器
