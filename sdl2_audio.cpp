@@ -26,17 +26,17 @@ int main_audio()
     SDL_AudioSpec audioSpec;
     
     //初始化SDL
-    if (SDL_Init(SDL_INIT_VIDEO) != 0)
+    if (SDL_Init(SDL_INIT_AUDIO | SDL_INIT_TIMER) != 0)
     {
         std::cout << "SDL_Init Error: " << SDL_GetError() << std::endl;
         return 1;
     }
     //初始化音频设备结构体
     // 音频数据的采样率。常用的有48000，44100等
-    audioSpec.freq = 44100; 
+    audioSpec.freq = 48000; 
     
     // 音频数据的格式
-    audioSpec.format = AUDIO_S16SYS;
+    audioSpec.format = AUDIO_F32SYS;
     
     // 声道数。例如单声道取值为1，立体声取值为2
     audioSpec.channels = 2;
@@ -57,27 +57,28 @@ int main_audio()
         return -1;
     }
 
-    FILE *pAudioFile = fopen("test.pcm", "rb+");
+    FILE *pAudioFile = fopen("audio.pcm", "rb+");
     if (pAudioFile == NULL)
     {
         printf("Can not open audio file!");
         return -1;
     }
 
-    int pcm_buffer_size = 4096;
+    int pcm_buffer_size = 8192;
     char *pcm_buffer = (char *)malloc(pcm_buffer_size);
     int data_count = 0;
 
     SDL_PauseAudio(0);
 
-    for (;;)
+    while(!feof(pAudioFile))
     {
         // 循环播放
-        if (fread(pcm_buffer, 1, pcm_buffer_size, pAudioFile) != pcm_buffer_size)
+        if (fread(pcm_buffer, 1, pcm_buffer_size, pAudioFile) <= 0)
         {
-            fseek(pAudioFile, 0, SEEK_SET);
-            fread(pcm_buffer, 1, pcm_buffer_size, pAudioFile);
-            data_count = 0;
+//            fseek(pAudioFile, 0, SEEK_SET);
+//            fread(pcm_buffer, 1, pcm_buffer_size, pAudioFile);
+//            data_count = 0;
+        break;
         }
         printf("Playing %10d Bytes data.\n", data_count);
         data_count += pcm_buffer_size;

@@ -15,6 +15,7 @@ CXX ?= g++
 
 INC_CLUDE = -I$(CURDIR)/local/include
 LIBS    := -lSDL2 -lSDL2_image
+LIBS    += -lavdevice -lavformat -lavfilter -lavcodec -lswresample -lswscale -lavutil
 LDFLAGS := -L$(CURDIR)/local/lib
 
 SOURCES += $(wildcard $(CURDIR)/*.cpp)
