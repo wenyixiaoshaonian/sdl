@@ -219,7 +219,7 @@ int cmedia_player::packet_queue_get(PacketQueue *q, AVPacket *pkt, int block) {
     return ret;
 }
 //解码后视频帧保存
-int cmedia_player::queue_picture(VideoState *is, AVFrame *pFrame, double pts) {
+int cmedia_player::queue_picture(AVFrame *pFrame, double pts) {
 
     VideoPicture *vp;
 
@@ -239,8 +239,8 @@ int cmedia_player::queue_picture(VideoState *is, AVFrame *pFrame, double pts) {
 
 //    /* allocate or resize the buffer! */
     if (!vp->frame ||
-        vp->width != video_ctx->width ||
-        vp->height != video_ctx->height) {
+        vp->width != pCodecCtx_v->width ||
+        vp->height != pCodecCtx_v->height) {
 
         vp->frame = av_frame_alloc();
         if (quit) {
@@ -302,8 +302,8 @@ int cbx_video_thread(void *org)
         }
         
         // 解码
-        avcodec_send_packet(tmp_serial->video_ctx, packet);
-        while (avcodec_receive_frame(tmp_serial->video_ctx, pFrame) == 0) {
+        avcodec_send_packet(tmp_serial->pCodecCtx_v, packet);
+        while (avcodec_receive_frame(tmp_serial->pCodecCtx_v, pFrame) == 0) {
             if ((pts = pFrame->best_effort_timestamp) != AV_NOPTS_VALUE) {
             } else {
                 pts = 0;
@@ -556,7 +556,7 @@ Uint32 sdl_refresh_timer_cb(Uint32 interval, void *opaque) {
 
     cmedia_player* tmp_serial=(cmedia_player*)opaque;
     SDL_Event event;
-    event.type = FF_REFRESH_EVENT;
+    event.type = SFM_REFRESH_EVENT;
     event.user.data1 = opaque;
     SDL_PushEvent(&event);
     return 0;
