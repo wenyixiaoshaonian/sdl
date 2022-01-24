@@ -20,12 +20,12 @@ int cmedia_player::open_input_file(const char *filename)
 
     infile = filename;
     if ((ret = avformat_open_input(&ifmt_ctx, filename, NULL, NULL)) < 0) {
-        std::cout << "Cannot open input file\n";
+        printf("Cannot open input file\n");
         return ret;
     }
  
     if ((ret = avformat_find_stream_info(ifmt_ctx, NULL)) < 0) {
-        std::cout << "Cannot find stream information\n";
+        printf("Cannot find stream information\n");
         return ret;
     }
     av_dump_format(ifmt_ctx, 0, filename, 0);
@@ -43,7 +43,7 @@ int cmedia_player::open_codec_context(enum AVMediaType type)
 
     ret = av_find_best_stream(ifmt_ctx, type, -1, -1, NULL, 0);
     if (ret < 0) {
-        std::cout << "Could not find %s stream in input file\n",
+        printf("Could not find %s stream in input file\n"),
                 av_get_media_type_string(type);
         return ret;
     } else {
@@ -53,7 +53,7 @@ int cmedia_player::open_codec_context(enum AVMediaType type)
         /* find decoder for the stream */
         dec = avcodec_find_decoder(st->codecpar->codec_id);
         if (!dec) {
-            std::cout << "Failed to find %s codec\n",
+            printf("Failed to find %s codec\n"),
                     av_get_media_type_string(type);
             return AVERROR(EINVAL);
         }
@@ -61,21 +61,21 @@ int cmedia_player::open_codec_context(enum AVMediaType type)
         /* Allocate a codec context for the decoder */
         pCodecCtx = avcodec_alloc_context3(dec);
         if (!pCodecCtx) {
-            std::cout << "Failed to allocate the %s codec context\n",
+            printf("Failed to allocate the %s codec context\n"),
                     av_get_media_type_string(type);
             return AVERROR(ENOMEM);
         }
 
         /* Copy codec parameters from input stream to output codec context */
         if ((ret = avcodec_parameters_to_context(pCodecCtx, st->codecpar)) < 0) {
-            std::cout << "Failed to copy %s codec parameters to decoder context\n",
+            printf("Failed to copy %s codec parameters to decoder context\n"),
                     av_get_media_type_string(type);
             return ret;
         }
 
         /* Init the decoders */
         if ((ret = avcodec_open2(pCodecCtx, dec, &opts)) < 0) {
-            std::cout << "Failed to open %s codec\n",
+            printf("Failed to open %s codec\n"),
                     av_get_media_type_string(type);
             return ret;
         }
@@ -85,10 +85,13 @@ int cmedia_player::open_codec_context(enum AVMediaType type)
             height = pCodecCtx->height;
             pix_fmt = pCodecCtx->pix_fmt;
             pCodecCtx_v = pCodecCtx;
+            video_st = st;
+            
         }
         else if(type == AVMEDIA_TYPE_AUDIO) {
             stream_idx_a = stream_index;
             pCodecCtx_a; = pCodecCtx;
+            audio_st = st;
 
         }
 
@@ -104,7 +107,7 @@ int cmedia_player::alloc_image()
     ret = av_image_alloc(video_dst_data, video_dst_linesize,
                          width, height, pix_fmt, 1);
     if (ret < 0) {
-        std::cout << "Could not allocate raw video buffer\n";
+        printf("Could not allocate raw video buffer\n");
         return ret;
     }
     video_dst_bufsize = ret;
@@ -115,61 +118,12 @@ int cmedia_player::alloc_image()
 
     audio_frame = av_frame_alloc();
     if (!audio_frame) {
-        std::cout << "Could not allocate video frame\n";
+        printf("Could not allocate video frame\n");
         return -1;
     }
     return 0;
 }
-#if 0
-int cmedia_player::decode_video()
-{
-    char buf[1024];
-    int ret = 0;
-    
-    ret = avcodec_send_packet(pCodecCtx_v, pkt);
-    if (ret < 0) {
-        std::cout << "Error sending a packet for decoding\n";
-        return ret;
-    }
 
-    while (ret >= 0) {
-        ret = avcodec_receive_frame(pCodecCtx_v, frame);
-        if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF)
-            return 0;
-        else if (ret < 0) {
-            std::cout << "Error during decoding\n";
-            return ret;
-        }
-
-        printf("saving frame %3d\n", pCodecCtx_v->frame_number);
-        fflush(stdout);
-        
-        std::cout << ">>>====  Width, height and pixel format have to be "
-                        "constant in a rawvideo file, but the width, height or "
-                        "pixel format of the input video changed:\n"
-                        "old: width = %d, height = %d, format = %d\n"
-                        "new: width = %d, height = %d, format = %d\n",
-                        pCodecCtx_v->width, pCodecCtx_v->height, pCodecCtx_v->pix_fmt,
-                        frame->width, frame->height,
-                        pCodecCtx_v->pix_fmt;
-
-
-        //如果原始格式为yuv，将解码帧复制到目标缓冲区后直接写入
-
-        /* copy decoded frame to destination buffer:
-         * this is required since rawvideo expects non aligned data */
-        av_image_copy(video_dst_data, video_dst_linesize,
-                      (const uint8_t **)(frame->data), frame->linesize,
-                      pCodecCtx_v->pix_fmt, pCodecCtx_v->width, pCodecCtx_v->height);
-
-        /* write to rawvideo file */
- //       fwrite(video_dst_data[0], 1, video_dst_bufsize, video_dst_file);
-
-    }
-    av_packet_unref(pkt);
-    return ret;
-}
-#endif
 int cmedia_player::decode_audio()
 {
     int ret, data_size;
@@ -177,7 +131,7 @@ int cmedia_player::decode_audio()
     /* send the packet with the compressed data to the decoder */
     ret = avcodec_send_packet(pCodecCtx_a, audio_pkt);
     if (ret < 0) {
-        std::cout << "Error submitting the packet to the decoder\n";
+        printf("Error submitting the packet to the decoder\n");
         return -1;
     }
 
@@ -187,13 +141,13 @@ int cmedia_player::decode_audio()
         if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF)
             return;
         else if (ret < 0) {
-            std::cout << "Error during decoding\n";
+            printf("Error during decoding\n");
             return -1;
         }
         data_size = av_get_bytes_per_sample(pCodecCtx_a->sample_fmt);
         if (data_size < 0) {
             /* This should not occur, checking just for paranoia */
-            std::cout << "Failed to calculate data size\n";
+            printf("Failed to calculate data size\n");
             return -1;
         }
 //        std::cout << "audio_frame n:%d nb_samples:%d pts:%s\n",
@@ -467,7 +421,7 @@ void audio_callback(void *userdata, Uint8 *stream, int len) {
             if (audio_size < 0) {
                 // 音频解码错误，播放静音
                 tmp_serial->audio_buf_size = 1024 * 2 * 2;
-                memset(is->audio_buf, 0, tmp_serial->audio_buf_size);
+                memset(tmp_serial->audio_buf, 0, tmp_serial->audio_buf_size);
             } else {
                 tmp_serial->audio_buf_size = audio_size;
             }
@@ -551,6 +505,12 @@ int cbx_parse_thread(void *org)
     AVCodecContext *pCodecCtx;
     AVPacket  *pkt;
 
+    tmp_serial->frame_timer = (double) av_gettime() / 1000000.0;
+    tmp_serial->frame_last_delay = 40e-3;
+    tmp_serial->video_current_pts_time = av_gettime();
+
+    tmp_serial->packet_queue_init(&tmp_serial->videoq);
+
     pthread_create(&tmp_serial->video_tid, 0, cbx_video_thread, this);
 
     //初始化音频相关组件、解码线程
@@ -613,14 +573,14 @@ int cmedia_player::init_sdl()
 {
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_AUDIO) != 0)
         {
-            std::cout << "SDL_Init Error: " << SDL_GetError() << std::endl;
+            printf("SDL_Init Error: %s",SDL_GetError());
             return -1;
         }
 //        IMG_Init(IMG_INIT_PNG | IMG_INIT_JPG);
     
         //创建窗口
         win = NULL;
-        win = SDL_CreateWindow("Hello SDL2",
+        win = SDL_CreateWindow("Media player",
             SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
             width, height, SDL_WINDOW_SHOWN);
         if (win == NULL)
@@ -646,7 +606,7 @@ int cmedia_player::init_sdl()
         //创建纹理 需要修改
         tex = NULL;   
         // 定时刷新器，主要用来控制视频的刷新
-        schedule_refresh(is, 40);
+        schedule_refresh(40);
 
         //创建复分解线程
         pthread_create(&parse_tid, 0, cbx_parse_thread, this);
@@ -775,7 +735,7 @@ void cmedia_player::recv_event()
             switch (event.type)
             {
                 case SDL_QUIT:                      //用户请求退出
-                    std::cout << ">>>===SDL_QUIT\n";
+                    printf(">>>===SDL_QUIT\n");
                     thread_exit=1;
                     break;
                 case SFM_REFRESH_EVENT:             //用户刷新事件
@@ -789,7 +749,7 @@ void cmedia_player::recv_event()
                     quit = true;
                     break;
                 default:
-                    std::cout << ">>>===error event type...\n";
+                    printf(">>>===error event type...\n");
                     break;
             }
         }

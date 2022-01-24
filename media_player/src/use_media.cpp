@@ -36,6 +36,7 @@ int main(int argc, char *argv[])
         return -1;
     }
 
+    //初始化SDL、定时器 创建复分解线程
     player.init_sdl();
     if(!ret) {
         printf("open_input_file error...\n");
