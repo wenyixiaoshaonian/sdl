@@ -404,7 +404,7 @@ int cmedia_player::audio_decode_frame(uint8_t *audio_buf, int buf_size, double *
         }
         audio_pkt_data = audio_pkt->data;
         audio_pkt_size = audio_pkt->size;
-        printf("audio count = %d  pkt->trs = %d  \n",audio_count++,audio_pkt->size);
+        printf("audio count = %d  pkt->size = %d  \n",audio_count++,audio_pkt->size);
         /* if update, update the audio clock w/pts */
         if (audio_pkt->pts != AV_NOPTS_VALUE) {
             audio_clock = av_q2d(audio_st->time_base) * audio_pkt->pts;
@@ -446,7 +446,7 @@ void audio_callback(void *userdata, Uint8 *stream, int len) {
     }
 }
 int cmedia_player::video_component_open() {
-    frame_timer = (double) av_gettime() / 1000000.0;
+//    frame_timer = (double) av_gettime() / 1000000.0;
     frame_last_delay = 40e-3;
     packet_queue_init(&videoq);
 
@@ -658,7 +658,7 @@ void cmedia_player::video_refresh_timer(void *userdata) {
         } else {
             // 从数组中取出一帧视频帧
             vp = &tmp_serial->pictq[tmp_serial->pictq_rindex];
-            printf("video count = %d  vp = %lf\n",video_count++,vp->pts);
+            
             // 当前Frame时间减去上一帧的时间，获取两帧间的时差
             delay = vp->pts - tmp_serial->frame_last_pts;
             if (delay <= 0 || delay >= 1.0) {
@@ -684,16 +684,17 @@ void cmedia_player::video_refresh_timer(void *userdata) {
                 } 
                 //视频快了 增大延时
                 else if (diff >= sync_threshold) {
-                    delay = 2 * delay;
+                    delay = delay*3;
                 }
             }
             tmp_serial->frame_timer += delay;
             // 最终真正要延时的时间
-            actual_delay = tmp_serial->frame_timer - (av_gettime() / 1000000.0);
+            actual_delay = tmp_serial->frame_timer;
             if (actual_delay < 0.010) {
                 // 延时时间过小就设置最小值
                 actual_delay = 0.010;
             }
+            printf("video count = %d  actual_delay = %lf\n",video_count++,actual_delay);
             // 根据延时时间重新设置定时器，刷新视频
             schedule_refresh((int) (actual_delay * 1000 + 0.5));
 
