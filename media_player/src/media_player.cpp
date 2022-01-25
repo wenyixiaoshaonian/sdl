@@ -445,7 +445,14 @@ void audio_callback(void *userdata, Uint8 *stream, int len) {
         tmp_serial->audio_buf_index += len1;
     }
 }
+int cmedia_player::video_component_open() {
+    frame_timer = (double) av_gettime() / 1000000.0;
+    frame_last_delay = 40e-3;
+    packet_queue_init(&videoq);
 
+    pthread_create(&video_tid, 0, cbx_video_thread, this);
+
+}
 int cmedia_player::audio_component_open() {
 
     SDL_AudioSpec wanted_spec;
@@ -516,15 +523,12 @@ void *cbx_parse_thread(void *arg)
     int count;
     
     pkt = av_packet_alloc();
-
-    tmp_serial->frame_timer = (double) av_gettime() / 1000000.0;
-    tmp_serial->frame_last_delay = 40e-3;
-    tmp_serial->packet_queue_init(&tmp_serial->videoq);
-
-    pthread_create(&tmp_serial->video_tid, 0, cbx_video_thread, arg);
+    //初始化视频相关组件、解码线程
+    tmp_serial->video_component_open();
 
     //初始化音频相关组件、解码线程
     tmp_serial->audio_component_open();
+
 
     while(1) {
         ret = av_read_frame(tmp_serial->ifmt_ctx,pkt);
@@ -564,6 +568,12 @@ void cmedia_player::schedule_refresh(int delay) {
     SDL_AddTimer(delay, sdl_refresh_timer_cb, this);
 }
 
+void cmedia_player::creat_demux_thread()
+{
+    //创建复分解线程
+    pthread_create(&parse_tid, 0, cbx_parse_thread, this);
+
+}
 
 int cmedia_player::init_sdl()
 {
@@ -606,10 +616,7 @@ int cmedia_player::init_sdl()
                                     height);
 
         // 定时刷新器，主要用来控制视频的刷新
-        schedule_refresh(40);
-
-        //创建复分解线程
-        pthread_create(&parse_tid, 0, cbx_parse_thread, this);
+        schedule_refresh(50);
 
         return 0;
 }

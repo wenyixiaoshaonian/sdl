@@ -115,25 +115,36 @@ public:
     int open_codec_context(enum AVMediaType type);
     int alloc_image();
     
-    //SDL
-    int init_sdl();
+    //队列相关
     void packet_queue_init(PacketQueue *q);
-    void recv_event();
     int packet_queue_put(PacketQueue *q, AVPacket *pkt);
     int packet_queue_get(PacketQueue *q, AVPacket *pkt, int block);
     int queue_picture(AVFrame *pFrame, double pts);
+    
+    //SDL
+    int init_sdl();  
+    void recv_event();
+
+    //同步
     double synchronize_video(AVFrame *src_frame, double pts);
+    double get_audio_clock();
+
+
+    // 音频帧解码
     int audio_component_open();
+    int audio_decode_frame(uint8_t *audio_buf, int buf_size, double *pts_ptr);
+    friend void audio_callback(void *userdata, Uint8 *stream, int len);
+
+    int video_component_open();
     void schedule_refresh(int delay);
     void video_refresh_timer(void *userdata);
-    double get_audio_clock();
     void video_display();
-    // 音频帧解码
-    int audio_decode_frame(uint8_t *audio_buf, int buf_size, double *pts_ptr);
 
+    void creat_demux_thread();
+
+    //相关回调
     friend void *cbx_parse_thread(void *arg);
     friend void *cbx_video_thread(void *arg);
-    friend void audio_callback(void *userdata, Uint8 *stream, int len);
     friend Uint32 sdl_refresh_timer_cb(Uint32 interval, void *opaque);
 
 };

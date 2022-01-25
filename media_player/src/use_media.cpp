@@ -42,6 +42,8 @@ int main(int argc, char *argv[])
         printf("init_sdl error...\n");
         return -1;
     }
+    //创建复分解线程
+    player.creat_demux_thread();
 
     //开始处理事件
     player.recv_event();
