@@ -68,12 +68,8 @@ int media_player::open_codec_context(enum AVMediaType type)
     AVStream *st;
     const AVCodec *dec = NULL;
     AVDictionary *opts = NULL;
-    AVCodecContext *pCodecCtx,
 
-    if(type == AVMEDIA_TYPE_VIDEO)
-        pCodecCtx = pCodecCtx_v;
-    else if(type == AVMEDIA_TYPE_AUDIO)
-        pCodecCtx = pCodecCtx_a;
+
 
     ret = av_find_best_stream(ifmt_ctx, type, -1, -1, NULL, 0);
     if (ret < 0) {
@@ -118,9 +114,12 @@ int media_player::open_codec_context(enum AVMediaType type)
             width = pCodecCtx->width;
             height = pCodecCtx->height;
             pix_fmt = pCodecCtx->pix_fmt;
+            pCodecCtx_v = pCodecCtx;
         }
-        else if(type == AVMEDIA_TYPE_AUDIO)
+        else if(type == AVMEDIA_TYPE_AUDIO) {
             stream_idx_a = stream_index;
+            pCodecCtx_a = pCodecCtx;
+        }
 
     }
 
@@ -181,7 +180,28 @@ int media_player::decode_video()
                         pCodecCtx_v->width, pCodecCtx_v->height, pCodecCtx_v->pix_fmt,
                         frame->width, frame->height,
                         pCodecCtx_v->pix_fmt;
+        //--------------filter--------------------------------------------------------------
+        frame->pts = frame->best_effort_timestamp;
+        /* push the decoded frame into the filtergraph */
+        if (av_buffersrc_add_frame_flags(buffersrc_ctx, frame, AV_BUFFERSRC_FLAG_KEEP_REF) < 0) {
+            printf(NULL, AV_LOG_ERROR, "Error while feeding the filtergraph\n");
+            break;
+        }        
+        /* pull filtered frames from the filtergraph */
+        while (1) {
+            ret = av_buffersink_get_frame(buffersink_ctx, frame_ft);
+            if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF)
+                break;
+            if (ret < 0)
+                goto end;
+//            write_frame(filt_frame,outfilename);
+//            av_frame_unref(frame_ft);
+            av_image_copy(video_dst_data, video_dst_linesize,
+                          (const uint8_t **)(frame_ft->data), frame_ft->linesize,
+                          pCodecCtx_v->pix_fmt, pCodecCtx_v->width, pCodecCtx_v->height);
 
+        }
+        //--------------filter--------------------------------------------------------------
 
         //如果原始格式为yuv，将解码帧复制到目标缓冲区后直接写入
 
@@ -254,22 +274,75 @@ int media_player::decode_func()
     return 0;
 }
 
-void media_player::sfp_refresh_thread(void *opaque){
+int media_player::init_filters()
+{
+    int ret;
+    enum AVPixelFormat pix_fmts[] = { AV_PIX_FMT_GRAY8, AV_PIX_FMT_NONE };
 
-	thread_exit=0;
-	thread_pause=0;
+    frame_ft = av_frame_alloc();
+    if (!frame_ft) {
+        printf("Could not allocate video frame\n");
+        return -1;
+    }
+
+    //创建过滤器
+    buffersrc = avfilter_get_by_name("buffer");
+    buffersink = avfilter_get_by_name("buffersink");
+    //创建inout
+    outputs = avfilter_inout_alloc();
+    inputs  = avfilter_inout_alloc();
+    //创建graph
+    filter_graph = avfilter_graph_alloc();
+
+    //在graph中创建过滤器实例
+    //与avfilter_graph_alloc_filter一样，只是再用args 和 opaque初始化这个实例
+    avfilter_graph_create_filter(&buffersrc_ctx, buffersrc, "in",NULL, NULL, filter_graph);
+    avfilter_graph_create_filter(&buffersink_ctx, buffersink, "out",NULL, NULL, filter_graph);
     
-	while (!thread_exit) {
-		if(!thread_pause){
+    ret = av_opt_set_int_list(buffersink_ctx, "pix_fmts", pix_fmts,
+                              AV_PIX_FMT_NONE, AV_OPT_SEARCH_CHILDREN);
+#if 1
+    //填充inout
+    outputs->name       = av_strdup("in");
+    outputs->filter_ctx = buffersrc_ctx;
+    outputs->pad_idx    = 0;
+    outputs->next       = NULL;
+
+    inputs->name       = av_strdup("out");
+    inputs->filter_ctx = buffersink_ctx;
+    inputs->pad_idx    = 0;
+    inputs->next       = NULL;
+
+    //使用filter_descr中的指令填充graph
+    //内部还是使用avfilter_link链接过滤器
+    avfilter_graph_parse_ptr(filter_graph, filter_descr,&inputs, &outputs, NULL);
+#else    
+    //或者直接使用这种方式连接 通常用来重采样等格式转换
+    avfilter_link(buffersrc_ctx, 0, buffersink_ctx, 0);
+#endif
+    //检查过滤器的完整性
+    avfilter_graph_config(filter_graph, NULL);
+    return 0;
+}
+
+void sfp_refresh_thread(void *opaque){
+
+    media_player* tmp_serial=(media_player*)opaque;
+
+	tmp_serial->thread_exit=0;
+	tmp_serial->thread_pause=0;
+    
+	while (!tmp_serial->thread_exit) {
+		if(!tmp_serial->thread_pause){
 			event.type = SFM_REFRESH_EVENT;
 			SDL_PushEvent(&event);
 		}
 		SDL_Delay(40);
 	}
-	thread_exit=0;
-	thread_pause=0;
+	tmp_serial->thread_exit=0;
+	tmp_serial->thread_pause=0;
 	//Break
-	event.type = SFM_BREAK_EVENT;
+	tmp_serial->event.type = SFM_BREAK_EVENT;
 	SDL_PushEvent(&event);
 
 }
@@ -306,8 +379,12 @@ int media_player::init_sdl()
 
         //创建纹理
         tex = NULL;   
-    
-        video_tid = SDL_CreateThread(sfp_refresh_thread,NULL,NULL);
+
+        //创建filter指令
+        filter_descr = "movie=my_logo.png[wm];[in][wm]overlay=5:5[out]";
+
+//        video_tid = SDL_CreateThread(sfp_refresh_thread,NULL,NULL);
+        pthread_create(&video_tid, 0, sfp_refresh_thread, this);
         return 0;
 }
 

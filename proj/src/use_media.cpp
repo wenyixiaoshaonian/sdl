@@ -13,30 +13,30 @@ int main(int argc, char** argv)
     file = argv[1];
 
     player.open_input_file(file);
-    if(!ret) {
+    if(ret) {
         printf("open_input_file error...\n");
         return -1;
     }
     player.open_codec_context(AVMEDIA_TYPE_VIDEO);
-    if(!ret) {
+    if(ret) {
         printf("open_codec_context AVMEDIA_TYPE_VIDEO error...\n");
         return -1;
     }
 
     player.open_codec_context(AVMEDIA_TYPE_AUDIO);
-    if(!ret) {
+    if(ret) {
         printf("open_codec_context AVMEDIA_TYPE_AUDIO error...\n");
         return -1;
     }
 
     player.alloc_image();
-    if(!ret) {
+    if(ret) {
         printf("alloc_image error...\n");
         return -1;
     }
 
     player.init_sdl();
-    if(!ret) {
+    if(ret) {
         printf("open_input_file error...\n");
         return -1;
     }
