@@ -26,6 +26,7 @@ static int video_dst_bufsize;
 static uint8_t *video_dst_data[4] = {NULL};
 static AVCodecContext *pCodecCtx_v= NULL;
 static AVCodecContext *pCodecCtx_a= NULL;
+static FILE *video_dst_file = NULL;
 
 #define SFM_REFRESH_EVENT  (SDL_USEREVENT + 1)
 #define SFM_BREAK_EVENT  (SDL_USEREVENT + 2)
@@ -42,7 +43,7 @@ int sfp_refresh_thread(void *opaque){
 			event.type = SFM_REFRESH_EVENT;
 			SDL_PushEvent(&event);
 		}
-		SDL_Delay(40);
+		SDL_Delay(1000 / 60);
 	}
 	thread_exit=0;
 	thread_pause=0;
@@ -71,16 +72,10 @@ static int decode(AVCodecContext *dec_ctx, AVFrame *frame, AVPacket *pkt)
             return ret;
         }
 
-        printf("saving frame %3d\n", dec_ctx->frame_number);
         fflush(stdout);
         
-        printf(">>>====  Width, height and pixel format have to be "
-                        "constant in a rawvideo file, but the width, height or "
-                        "pixel format of the input video changed:\n"
-                        "old: width = %d, height = %d, format = %d\n"
-                        "new: width = %d, height = %d, format = %d\n",
-                        dec_ctx->width, dec_ctx->height, dec_ctx->pix_fmt,
-                        frame->width, frame->height,
+        printf(">>>==== frame: number : %d   width = %d, height = %d, format = %d\n",
+                        dec_ctx->frame_number,frame->width, frame->height,
                         dec_ctx->pix_fmt);
 
 
@@ -93,7 +88,7 @@ static int decode(AVCodecContext *dec_ctx, AVFrame *frame, AVPacket *pkt)
                       dec_ctx->pix_fmt, dec_ctx->width, dec_ctx->height);
 
         /* write to rawvideo file */
- //       fwrite(video_dst_data[0], 1, video_dst_bufsize, video_dst_file);
+        fwrite(video_dst_data[0], 1, video_dst_bufsize, video_dst_file);
 
     }
     return ret;
@@ -225,6 +220,12 @@ int main_hard(const char *src)
         exit(1);
     }
 
+    video_dst_file = fopen("test.yuv", "wb+");
+    if (!video_dst_file) {
+        fprintf(stderr, "Could not open %s\n", "test.yuv");
+        exit(1);
+    }
+
     //----------------------------------------SDL初始化--------------------------------------------
     //初始化SDL
     if (SDL_Init(SDL_INIT_VIDEO) != 0)
@@ -267,6 +268,7 @@ int main_hard(const char *src)
     SDL_Texture *tex = NULL;
     
 //    SDL_FreeSurface(bmp);
+    tex = SDL_CreateTexture(ren, SDL_PIXELFORMAT_IYUV, SDL_TEXTUREACCESS_STREAMING, pCodecCtx_v->width, pCodecCtx_v->height);//创建对应纹理
 
 
     video_tid = SDL_CreateThread(sfp_refresh_thread,NULL,NULL);
@@ -323,9 +325,7 @@ int main_hard(const char *src)
                 printf(">>>===error event type...\n");
                 break;
         }
-    
-//    //窗口延时
-//    SDL_Delay(5000);
+
     }
     //释放资源
     SDL_DestroyTexture(tex);

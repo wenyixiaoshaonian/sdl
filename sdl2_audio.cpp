@@ -44,7 +44,7 @@ int main_audio()
     // 设置静音的值
     audioSpec.silence = 0;
 
-    // 音频缓冲区中的采样个数，要求必须是2的n次方
+    // 音频缓冲区中的采样个数，要求必须是2的n次方  AAC为1024
     audioSpec.samples = 1024;
 
     // 填充音频缓冲区的回调函数
@@ -64,7 +64,8 @@ int main_audio()
         return -1;
     }
 
-    int pcm_buffer_size = 8192;
+//    int pcm_buffer_size = 8192;  
+    int pcm_buffer_size = audioSpec.samples * audioSpec.channels * audioSpec.format;    
     char *pcm_buffer = (char *)malloc(pcm_buffer_size);
     int data_count = 0;
 

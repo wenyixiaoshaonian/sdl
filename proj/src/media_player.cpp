@@ -15,8 +15,8 @@ media_player::media_player()
     width = -1;
     height = -1;;
     pix_fmt = AV_PIX_FMT_NONE;
-    *pCodecCtx_v= NULL;
-    *pCodecCtx_a= NULL;
+    pCodecCtx_v= NULL;
+    pCodecCtx_a= NULL;
     video_dst_data[4] = {NULL};
     video_dst_linesize[4] = 0;
     video_dst_bufsize = -1;
@@ -29,6 +29,7 @@ media_player::media_player()
 }
 media_player::~media_player()
 {
+#if 0
     //释放资源
     avcodec_free_context(&pCodecCtx_v);
     avcodec_free_context(&pCodecCtx_a);
@@ -40,6 +41,7 @@ media_player::~media_player()
     SDL_DestroyTexture(tex);
     SDL_DestroyRenderer(ren);
     SDL_DestroyWindow(win);
+#endif
     //退出SDL
     SDL_Quit();
 }
@@ -49,16 +51,17 @@ int media_player::open_input_file(const char *filename)
 
     infile = filename;
     if ((ret = avformat_open_input(&ifmt_ctx, filename, NULL, NULL)) < 0) {
-        std::cout << "Cannot open input file\n";
+//        std::cout << "Cannot open input file\n";
+        printf("Cannot open input file");
         return ret;
     }
  
     if ((ret = avformat_find_stream_info(ifmt_ctx, NULL)) < 0) {
-        std::cout << "Cannot find stream information\n";
+        printf("Cannot find stream information");
         return ret;
     }
-    av_dump_format(ifmt_ctx, 0, filename, 0);
-    return ret;
+//    av_dump_format(ifmt_ctx, 0, filename, 0);
+    return 0;
 
 }
 
@@ -69,12 +72,10 @@ int media_player::open_codec_context(enum AVMediaType type)
     const AVCodec *dec = NULL;
     AVDictionary *opts = NULL;
 
-
-
     ret = av_find_best_stream(ifmt_ctx, type, -1, -1, NULL, 0);
     if (ret < 0) {
-        std::cout << "Could not find %s stream in input file\n",
-                av_get_media_type_string(type);
+        printf("Could not find %s stream in input file\n",
+                av_get_media_type_string(type));
         return ret;
     } else {
         stream_index = ret;
@@ -83,30 +84,30 @@ int media_player::open_codec_context(enum AVMediaType type)
         /* find decoder for the stream */
         dec = avcodec_find_decoder(st->codecpar->codec_id);
         if (!dec) {
-            std::cout << "Failed to find %s codec\n",
-                    av_get_media_type_string(type);
+            printf("Failed to find %s codec\n",
+                    av_get_media_type_string(type));
             return AVERROR(EINVAL);
         }
 
         /* Allocate a codec context for the decoder */
         pCodecCtx = avcodec_alloc_context3(dec);
         if (!pCodecCtx) {
-            std::cout << "Failed to allocate the %s codec context\n",
-                    av_get_media_type_string(type);
+            printf("Failed to allocate the %s codec context\n",
+                    av_get_media_type_string(type));
             return AVERROR(ENOMEM);
         }
 
         /* Copy codec parameters from input stream to output codec context */
         if ((ret = avcodec_parameters_to_context(pCodecCtx, st->codecpar)) < 0) {
-            std::cout << "Failed to copy %s codec parameters to decoder context\n",
-                    av_get_media_type_string(type);
+            printf("Failed to copy %s codec parameters to decoder context\n",
+                    av_get_media_type_string(type));
             return ret;
         }
 
         /* Init the decoders */
         if ((ret = avcodec_open2(pCodecCtx, dec, &opts)) < 0) {
-            std::cout << "Failed to open %s codec\n",
-                    av_get_media_type_string(type);
+            printf("Failed to open %s codec\n",
+                    av_get_media_type_string(type));
             return ret;
         }
         if(type == AVMEDIA_TYPE_VIDEO) {
@@ -120,6 +121,7 @@ int media_player::open_codec_context(enum AVMediaType type)
             stream_idx_a = stream_index;
             pCodecCtx_a = pCodecCtx;
         }
+        pCodecCtx = NULL;
 
     }
 
@@ -132,7 +134,7 @@ int media_player::alloc_image()
     ret = av_image_alloc(video_dst_data, video_dst_linesize,
                          width, height, pix_fmt, 1);
     if (ret < 0) {
-        std::cout << "Could not allocate raw video buffer\n";
+        printf("Could not allocate raw video buffer\n");
         return ret;
     }
     video_dst_bufsize = ret;
@@ -143,7 +145,13 @@ int media_player::alloc_image()
 
     frame = av_frame_alloc();
     if (!frame) {
-        std::cout << "Could not allocate video frame\n";
+        printf("Could not allocate video frame\n");
+        return -1;
+    }
+
+    frame_ft = av_frame_alloc();
+    if (!frame_ft) {
+        printf("Could not allocate video frame\n");
         return -1;
     }
     return 0;
@@ -153,33 +161,30 @@ int media_player::decode_video()
 {
     char buf[1024];
     int ret = 0;
-    
+    printf(">>>>3333 pCodecCtx_v->width = %d  pCodecCtx_v->height = %d\n",pCodecCtx_v->width,pCodecCtx_v->height);
     ret = avcodec_send_packet(pCodecCtx_v, pkt);
     if (ret < 0) {
-        std::cout << "Error sending a packet for decoding\n";
+        printf("Error sending a packet for decoding pkt->size: %d\n",pkt->size);
         return ret;
     }
+    printf(">>>>4444 pkt->size = %d \n",pkt->size);
 
     while (ret >= 0) {
         ret = avcodec_receive_frame(pCodecCtx_v, frame);
         if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF)
             return 0;
         else if (ret < 0) {
-            std::cout << "Error during decoding\n";
+            printf("Error during decoding\n");
             return ret;
         }
 
         printf("saving frame %3d\n", pCodecCtx_v->frame_number);
         fflush(stdout);
         
-        std::cout << ">>>====  Width, height and pixel format have to be "
-                        "constant in a rawvideo file, but the width, height or "
-                        "pixel format of the input video changed:\n"
-                        "old: width = %d, height = %d, format = %d\n"
-                        "new: width = %d, height = %d, format = %d\n",
-                        pCodecCtx_v->width, pCodecCtx_v->height, pCodecCtx_v->pix_fmt,
-                        frame->width, frame->height,
-                        pCodecCtx_v->pix_fmt;
+        printf(">>>==== frame: number : %d   width = %d, height = %d, format = %d\n",
+                        pCodecCtx_v->frame_number,frame->width, frame->height,
+                        pCodecCtx_v->pix_fmt);
+        
         //--------------filter--------------------------------------------------------------
         frame->pts = frame->best_effort_timestamp;
         /* push the decoded frame into the filtergraph */
@@ -203,13 +208,15 @@ int media_player::decode_video()
         }
         //--------------filter--------------------------------------------------------------
 
+
+
         //如果原始格式为yuv，将解码帧复制到目标缓冲区后直接写入
 
         /* copy decoded frame to destination buffer:
          * this is required since rawvideo expects non aligned data */
-        av_image_copy(video_dst_data, video_dst_linesize,
-                      (const uint8_t **)(frame->data), frame->linesize,
-                      pCodecCtx_v->pix_fmt, pCodecCtx_v->width, pCodecCtx_v->height);
+//        av_image_copy(video_dst_data, video_dst_linesize,
+//                      (const uint8_t **)(frame->data), frame->linesize,
+//                      pCodecCtx_v->pix_fmt, pCodecCtx_v->width, pCodecCtx_v->height);
 
         /* write to rawvideo file */
  //       fwrite(video_dst_data[0], 1, video_dst_bufsize, video_dst_file);
@@ -226,7 +233,7 @@ int media_player::decode_audio()
     /* send the packet with the compressed data to the decoder */
     ret = avcodec_send_packet(pCodecCtx_a, pkt);
     if (ret < 0) {
-        std::cout << "Error submitting the packet to the decoder\n";
+        printf("Error submitting the packet to the decoder\n");
         return -1;
     }
 
@@ -234,20 +241,20 @@ int media_player::decode_audio()
     while (ret >= 0) {
         ret = avcodec_receive_frame(pCodecCtx_a, frame);
         if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF)
-            return;
+            return -1;
         else if (ret < 0) {
-            std::cout << "Error during decoding\n";
+            printf("Error during decoding\n");
             return -1;
         }
         data_size = av_get_bytes_per_sample(pCodecCtx_a->sample_fmt);
         if (data_size < 0) {
             /* This should not occur, checking just for paranoia */
-            std::cout << "Failed to calculate data size\n";
+            printf("Failed to calculate data size\n");
             return -1;
         }
-        std::cout << "audio_frame n:%d nb_samples:%d pts:%s\n",
-           audio_frame_count++, frame->nb_samples,
-           av_ts2timestr(frame->pts, &pCodecCtx_a->time_base);
+ //       std::cout << "audio_frame n:%d nb_samples:%d pts:%s\n",
+ //          audio_frame_count++, frame->nb_samples,
+ //          av_ts2timestr(frame->pts, &pCodecCtx_a->time_base);
     }
     av_packet_unref(pkt);
     return 0;
@@ -258,13 +265,17 @@ int media_player::decode_func()
     int ret;
     AVCodecContext *pCodecCtx;
 
+    printf(">>>>1111 pkt->size = %d \n",pkt->size);
     ret = av_read_frame(ifmt_ctx,pkt);
-    if (ret < 0)
-        break;
+    if (ret < 0){
+        printf("av_read_frame error!!!\n");
+        return ret;
+    }
+    printf(">>>>2222 pkt->size = %d \n",pkt->size);
     if(pkt->stream_index == stream_idx_v) {
         ret = decode_video();
         if(ret < 0) {
-            std::cout << "decode_video error!!!\n";
+            printf("decode_video error!!!\n");
             return ret;
         }
     }
@@ -273,7 +284,6 @@ int media_player::decode_func()
     }
     return 0;
 }
-
 int media_player::init_filters()
 {
     int ret;
@@ -325,25 +335,25 @@ int media_player::init_filters()
     return 0;
 }
 
-void sfp_refresh_thread(void *opaque){
+void *sfp_refresh_thread(void* arg){
 
-    media_player* tmp_serial=(media_player*)opaque;
+    media_player* tmp_serial=(media_player*)arg;
 
 	tmp_serial->thread_exit=0;
 	tmp_serial->thread_pause=0;
     
 	while (!tmp_serial->thread_exit) {
 		if(!tmp_serial->thread_pause){
-			event.type = SFM_REFRESH_EVENT;
-			SDL_PushEvent(&event);
+			tmp_serial->event.type = SFM_REFRESH_EVENT;
+			SDL_PushEvent(&tmp_serial->event);
 		}
-		SDL_Delay(40);
+		SDL_Delay(1000 / 60);
 	}
 	tmp_serial->thread_exit=0;
 	tmp_serial->thread_pause=0;
 	//Break
 	tmp_serial->event.type = SFM_BREAK_EVENT;
-	SDL_PushEvent(&event);
+	SDL_PushEvent(&tmp_serial->event);
 
 }
 
@@ -351,11 +361,10 @@ int media_player::init_sdl()
 {
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) != 0)
         {
-            std::cout << "SDL_Init Error: " << SDL_GetError() << std::endl;
+            printf("SDL_Init Error: %s\n",SDL_GetError());
             return -1;
         }
 //        IMG_Init(IMG_INIT_PNG | IMG_INIT_JPG);
-    
         //创建窗口
         win = NULL;
         win = SDL_CreateWindow("Hello SDL2",
@@ -363,7 +372,7 @@ int media_player::init_sdl()
             width, height, SDL_WINDOW_SHOWN);
         if (win == NULL)
         {
-            std::cout << SDL_GetError() << std::endl;
+            printf("SDL_CreateWindow Error: %s\n",SDL_GetError());
             return -1;
         }
     
@@ -373,18 +382,16 @@ int media_player::init_sdl()
             SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
         if (ren == NULL)
         {
-            std::cout << SDL_GetError() << std::endl;
+            printf("SDL_CreateRenderer Error: %s\n",SDL_GetError());
             return -1;
         }
 
         //创建纹理
         tex = NULL;   
+        tex = SDL_CreateTexture(ren, SDL_PIXELFORMAT_IYUV, SDL_TEXTUREACCESS_STREAMING, width, height);//创建对应纹理
+//        video_tid = SDL_CreateThread(sfp_refresh_thread,NULL,this);
+        pthread_create(&video_tid,0,sfp_refresh_thread,this);
 
-        //创建filter指令
-        filter_descr = "movie=my_logo.png[wm];[in][wm]overlay=5:5[out]";
-
-//        video_tid = SDL_CreateThread(sfp_refresh_thread,NULL,NULL);
-        pthread_create(&video_tid, 0, sfp_refresh_thread, this);
         return 0;
 }
 
@@ -399,7 +406,7 @@ void media_player::recv_event()
             switch (event.type)
             {
                 case SDL_QUIT:                      //用户请求退出
-                    std::cout << ">>>===SDL_QUIT\n";
+                    printf(">>>===SDL_QUIT\n");
                     thread_exit=1;
                     break;
                 case SFM_REFRESH_EVENT:             //用户刷新事件
@@ -421,7 +428,7 @@ void media_player::recv_event()
                     quit = true;
                     break;
                 default:
-                    std::cout << ">>>===error event type...\n";
+                    printf(">>>===error event type...\n");
                     break;
             }
         }

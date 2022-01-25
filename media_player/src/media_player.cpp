@@ -1,7 +1,56 @@
 #include"media_player.h"
 
 #define SFM_REFRESH_EVENT  (SDL_USEREVENT + 1)
-#define SFM_BREAK_EVENT  (SDL_USEREVENT + 2)
+
+int video_count = 0;
+int audio_count = 0;
+
+cmedia_player::cmedia_player()
+{
+    //编解码
+    ifmt_ctx = NULL;
+    pCodecCtx= NULL;
+    pCodecCtx_v= NULL;
+    pCodecCtx_a= NULL;
+
+    //编码信息
+    stream_idx_v = -1;
+    stream_idx_a = -1;
+    width = -1;
+    height = -1;;
+    pix_fmt = AV_PIX_FMT_NONE;
+    pictq_windex = 0;
+    pictq_rindex = 0;
+    pictq_size = 0;   
+   
+    audio_buf_size = 0;
+    audio_buf_index = 0;
+    audio_frame = NULL;
+    audio_pkt = NULL;
+    audio_pkt_data = NULL;
+    audio_pkt_size = 0;
+    
+    //同步 
+    video_clock = 0;
+    audio_clock = 0;
+    frame_timer = 0;
+    frame_last_pts = 0;
+    frame_last_delay = 0;  
+
+    //系统
+    quit = false; 
+    thread_pause=0;
+    parse_tid = NULL;
+    video_tid = NULL;
+
+    //SDL
+    win = NULL;
+    ren = NULL;
+    tex = NULL;
+
+
+
+}
 
 // 初始化队列
 void cmedia_player::packet_queue_init(PacketQueue *q) {
@@ -24,7 +73,7 @@ int cmedia_player::open_input_file(const char *filename)
         printf("Cannot find stream information\n");
         return ret;
     }
-//    av_dump_format(ifmt_ctx, 0, filename, 0);
+    av_dump_format(ifmt_ctx, 0, filename, 0);
     return ret;
 
 }
@@ -99,15 +148,6 @@ int cmedia_player::open_codec_context(enum AVMediaType type)
 
 int cmedia_player::alloc_image()
 {
-    int ret;
-    ret = av_image_alloc(video_dst_data, video_dst_linesize,
-                         width, height, pix_fmt, 1);
-    if (ret < 0) {
-        printf("Could not allocate raw video buffer\n");
-        return ret;
-    }
-    video_dst_bufsize = ret;
-
     audio_pkt = av_packet_alloc();
     if (!audio_pkt)
         return -1;
@@ -189,14 +229,13 @@ int cmedia_player::queue_picture(AVFrame *pFrame, double pts) {
     SDL_LockMutex(pictq_mutex);
     while (pictq_size >= VIDEO_PICTURE_QUEUE_SIZE && !quit) {
         //等待pictq_cond信号量，同时暂时释放pictq_mutex，让其他线程获得，被唤醒时再度获取这个锁
-        printf("11111111111111111111\n");
         SDL_CondWait(pictq_cond, pictq_mutex);
-        printf("22222222222222222\n");
     }
     SDL_UnlockMutex(pictq_mutex);
 
-    if (quit)
+    if (quit) {
         return -1;
+    }
 
     // windex is set to 0 initially
     vp = &pictq[pictq_windex];
@@ -215,7 +254,6 @@ int cmedia_player::queue_picture(AVFrame *pFrame, double pts) {
 
     /* We have a place to put our picture on the queue */
     if (vp->frame) {
-
         vp->pts = pts;
 
         vp->frame = pFrame;
@@ -269,10 +307,9 @@ void *cbx_video_thread(void *arg)
         if (tmp_serial->packet_queue_get(&tmp_serial->videoq, packet, 1) < 0) {
             break;
         }
-        printf(">>>==== iout = %d  packet_queue_get videoq\n",iout++);
         // 解码
         avcodec_send_packet(tmp_serial->pCodecCtx_v, packet);
-        while (avcodec_receive_frame(tmp_serial->pCodecCtx_v, pFrame) == 0) {
+        while (avcodec_receive_frame(tmp_serial->pCodecCtx_v, pFrame) >= 0) {
             if ((pts = pFrame->best_effort_timestamp) != AV_NOPTS_VALUE) {
             } else {
                 pts = 0;
@@ -284,7 +321,6 @@ void *cbx_video_thread(void *arg)
             if (tmp_serial->queue_picture(pFrame, pts) < 0) {
                 break;
             }
-            printf(">>>==== iout_2 = %d  queue_picture videoq\n",iout_2++);
             av_packet_unref(packet);
         }
     }
@@ -310,19 +346,18 @@ double cmedia_player::get_audio_clock() {
     return pts;
 }
 
+
 // 音频帧解码
 int cmedia_player::audio_decode_frame(uint8_t *audio_buf, int buf_size, double *pts_ptr) {
 
     int len1, data_size = 0;
-//    AVPacket *pkt = audio_pkt;
     double pts;
     int n;
     AVFrame *frame;
-
+    
     for (;;) {
         while (audio_pkt_size > 0) {
             avcodec_send_packet(pCodecCtx_a, audio_pkt);
-            printf(">>>==== pkt->size = %d  \n",audio_pkt->size);
             while (avcodec_receive_frame(pCodecCtx_a, audio_frame) >= 0) {
                 len1 = audio_frame->pkt_size;
 
@@ -369,7 +404,7 @@ int cmedia_player::audio_decode_frame(uint8_t *audio_buf, int buf_size, double *
         }
         audio_pkt_data = audio_pkt->data;
         audio_pkt_size = audio_pkt->size;
-        printf(">>>==== 222 pkt->size = %d  \n",audio_pkt->size);
+        printf("audio count = %d  pkt->trs = %d  \n",audio_count++,audio_pkt->size);
         /* if update, update the audio clock w/pts */
         if (audio_pkt->pts != AV_NOPTS_VALUE) {
             audio_clock = av_q2d(audio_st->time_base) * audio_pkt->pts;
@@ -386,7 +421,7 @@ void audio_callback(void *userdata, Uint8 *stream, int len) {
 
     SDL_memset(stream, 0, len);
 
-    while (len > 0) {
+    while (len > 0 && !tmp_serial->thread_pause) {
         //判断本次解码的数据是否全部播放完，全部播放完后解码下一个pkt
         if (tmp_serial->audio_buf_index >= tmp_serial->audio_buf_size) {
             // 音频解码
@@ -477,8 +512,10 @@ void *cbx_parse_thread(void *arg)
     cmedia_player* tmp_serial=(cmedia_player*)arg;
     int ret;
     AVCodecContext *pCodecCtx;
-    AVPacket  pkt;
+    AVPacket  *pkt;
     int count;
+    
+    pkt = av_packet_alloc();
 
     tmp_serial->frame_timer = (double) av_gettime() / 1000000.0;
     tmp_serial->frame_last_delay = 40e-3;
@@ -487,21 +524,20 @@ void *cbx_parse_thread(void *arg)
     pthread_create(&tmp_serial->video_tid, 0, cbx_video_thread, arg);
 
     //初始化音频相关组件、解码线程
-//    tmp_serial->audio_component_open();
+    tmp_serial->audio_component_open();
 
-    printf(">>>== tmp_serial->ifmt_ctx->url %s\n",tmp_serial->ifmt_ctx->url);
     while(1) {
-        ret = av_read_frame(tmp_serial->ifmt_ctx,&pkt);
+        ret = av_read_frame(tmp_serial->ifmt_ctx,pkt);
         if (ret < 0)
             break;
-        if(pkt.stream_index == tmp_serial->stream_idx_v) {
-            printf(">>>==== count = %d  packet_queue_put videoq\n",count++);
-            tmp_serial->packet_queue_put(&tmp_serial->videoq, &pkt);
+        if(pkt->stream_index == tmp_serial->stream_idx_v) {
+            tmp_serial->packet_queue_put(&tmp_serial->videoq, pkt);
         }
-//        else if(pkt.stream_index == tmp_serial->stream_idx_a) {
-//            tmp_serial->packet_queue_put(&tmp_serial->audioq, &pkt);
-//        }
+        else if(pkt->stream_index == tmp_serial->stream_idx_a) {
+            tmp_serial->packet_queue_put(&tmp_serial->audioq, pkt);
+        }
     }
+    av_packet_free(&pkt);
 }
 
 
@@ -510,18 +546,14 @@ Uint32 sdl_refresh_timer_cb(Uint32 interval, void *opaque) {
 
     cmedia_player* tmp_serial=(cmedia_player*)opaque;
     SDL_Event event;
-//	while (!tmp_serial->thread_exit) {
- //   	if(!tmp_serial->thread_pause){  
+	if (!tmp_serial->quit) {
+    	if(!tmp_serial->thread_pause){  
             event.type = SFM_REFRESH_EVENT;
             event.user.data1 = opaque;
             SDL_PushEvent(&event);
- //       }
-//	}
-//	tmp_serial->thread_exit=0;
-//	tmp_serial->thread_pause=0;
-	//Break
-//	tmp_serial->event.type = SFM_BREAK_EVENT;
-//	SDL_PushEvent(&tmp_serial->event);
+        }
+	}
+	tmp_serial->quit=0;
 
     return 0;
 }
@@ -548,28 +580,31 @@ int cmedia_player::init_sdl()
             width, height, SDL_WINDOW_SHOWN);
         if (win == NULL)
         {
-            std::cout << SDL_GetError() << std::endl;
+            printf("SDL_CreateWindow error! error : %s\n",SDL_GetError());
             return -1;
         }
     
         //创建渲染器
-        video_tid = NULL;
-        parse_tid = NULL;
-        ren = NULL;
+
         ren = SDL_CreateRenderer(win, -1,
             SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
         if (ren == NULL)
         {
-            printf("SDL_CreateRenderer error!\n",SDL_GetError());
+            printf("SDL_CreateRenderer error! error : %s\n",SDL_GetError());
             return -1;
         }
-        resize = 1;
-        quit = false;
+
         //创建一个锁和信号量，主要用于存放解码后视频帧个数的变量pictq_size会被两个线程操作
         pictq_mutex = SDL_CreateMutex();
         pictq_cond = SDL_CreateCond();
 
         //创建纹理 需要修改  
+        tex = SDL_CreateTexture(ren,
+                                    SDL_PIXELFORMAT_IYUV,
+                                    SDL_TEXTUREACCESS_STREAMING,
+                                    width,
+                                    height);
+
         // 定时刷新器，主要用来控制视频的刷新
         schedule_refresh(40);
 
@@ -583,22 +618,6 @@ void cmedia_player::video_display() {
 
     SDL_Rect rect;
     VideoPicture *vp;
-
-    if (width && resize) {
-        SDL_SetWindowSize(win, width, height);
-        SDL_SetWindowPosition(win, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
-        SDL_ShowWindow(win);
-
-        Uint32 pixformat = SDL_PIXELFORMAT_IYUV;
-
-        //create texture for render
-        tex = SDL_CreateTexture(ren,
-                                    pixformat,
-                                    SDL_TEXTUREACCESS_STREAMING,
-                                    width,
-                                    height);
-        resize = 0;
-    }
 
     vp = &pictq[pictq_rindex];
 
@@ -628,14 +647,11 @@ void cmedia_player::video_refresh_timer(void *userdata) {
 
     if (tmp_serial->video_st) {
         if (tmp_serial->pictq_size == 0) {
-            printf(">>>===no value in pictq_size\n");
             schedule_refresh(1);
         } else {
             // 从数组中取出一帧视频帧
             vp = &tmp_serial->pictq[tmp_serial->pictq_rindex];
-            printf(">>>===111 vp = %lf\n",vp->pts);
-            tmp_serial->video_current_pts = vp->pts;
-#if 0
+            printf("video count = %d  vp = %lf\n",video_count++,vp->pts);
             // 当前Frame时间减去上一帧的时间，获取两帧间的时差
             delay = vp->pts - tmp_serial->frame_last_pts;
             if (delay <= 0 || delay >= 1.0) {
@@ -664,8 +680,6 @@ void cmedia_player::video_refresh_timer(void *userdata) {
                     delay = 2 * delay;
                 }
             }
-#endif
-            tmp_serial->frame_timer = 0.04;
             tmp_serial->frame_timer += delay;
             // 最终真正要延时的时间
             actual_delay = tmp_serial->frame_timer - (av_gettime() / 1000000.0);
@@ -704,24 +718,21 @@ void cmedia_player::recv_event()
             switch (event.type)
             {
                 case SDL_QUIT:                      //用户请求退出
-                    printf(">>>===SDL_QUIT\n");
-                    thread_exit=1;
+                    printf("SDL_QUIT\n");
                     quit = true;
                     break;
                 case SFM_REFRESH_EVENT:             //用户刷新事件
-//                    printf(">>>===SFM_REFRESH_EVENT\n");
                     video_refresh_timer(event.user.data1);
                     break;
                 case SDL_KEYDOWN:                   //用户键盘输入事件  ，暂停事件
-                    if(event.key.keysym.sym==SDLK_SPACE)
+                    if(event.key.keysym.sym==SDLK_SPACE) {
+                        printf("SDLK_SPACE\n");
                         thread_pause=!thread_pause;
-                    break;
-                case SFM_BREAK_EVENT:               //退出事件
-                printf(">>>===SFM_BREAK_EVENT\n");
-//                    quit = true;
+                        if(!thread_pause)
+                            schedule_refresh(1);    //由暂停开始播放 再次发送一个刷新视频帧的事件
+                    }
                     break;
                 default:
-//                    printf(">>>===error event type... event.type = %d\n",event.type);
                     break;
             }
         }

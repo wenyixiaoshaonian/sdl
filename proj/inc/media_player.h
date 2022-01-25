@@ -8,6 +8,7 @@ extern "C"
 #include <string.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <pthread.h>
 
 #include <libavcodec/avcodec.h>
 #include <libavformat/avformat.h>
@@ -18,6 +19,7 @@ extern "C"
 #include <libavutil/imgutils.h>
 #include <libavutil/samplefmt.h>
 #include <libavutil/timestamp.h>
+
 }
 
 class media_player
@@ -25,7 +27,7 @@ class media_player
 private:
     //ffmpeg
     AVFormatContext *ifmt_ctx;          //媒体文件的抽象
-    char *infile;                       //输入媒体文件的路径
+    const char *infile;                 //输入媒体文件的路径
     int stream_idx_v;                   //video数据流索引
     int stream_idx_a;                   //audio数据流索引
     AVPacket *pkt;                      //存放解码前数据
@@ -34,6 +36,7 @@ private:
     enum AVPixelFormat pix_fmt;         //raw数据格式(YUV、RGB等)
     AVCodecContext *pCodecCtx_v;
     AVCodecContext *pCodecCtx_a;
+    AVCodecContext *pCodecCtx;          //缓冲区
     //存放解码数据，格式转换后缓冲区的相关信息
     int video_dst_linesize[4];
     int video_dst_bufsize;
@@ -45,7 +48,7 @@ private:
     SDL_Renderer *ren;
     SDL_Texture *tex;
     SDL_Event event;                    //SDL事件
-    SDL_Thread *video_tid;              //SDL视频刷新线程
+    pthread_t video_tid;              //SDL视频刷新线程
     bool quit;                          //SDL事件退出标志
     int thread_exit;
     int thread_pause;
@@ -64,7 +67,8 @@ public:
     
     //SDL
     int init_sdl();
-    void sfp_refresh_thread(void *opaque);
     void recv_event();
+    friend void *sfp_refresh_thread(void *opaque);
+
 };
 
