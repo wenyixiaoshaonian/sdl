@@ -15,10 +15,15 @@ extern "C"
 #include <libswscale/swscale.h>
 #include <libswresample/swresample.h>
 #include <libswscale/swscale_internal.h>
+#include <libavfilter/avfilter.h>
+#include <libavfilter/buffersrc.h>
+#include <libavfilter/buffersink.h>
+
 
 #include <libavutil/imgutils.h>
 #include <libavutil/samplefmt.h>
 #include <libavutil/timestamp.h>
+#include <libavutil/opt.h>
 
 }
 
@@ -43,6 +48,16 @@ private:
     uint8_t *video_dst_data[4];
 
     int audio_frame_count;
+    //filter
+    const char *filter_descr;
+    const AVFilter *buffersrc;
+    const AVFilter *buffersink;
+    AVFilterInOut *outputs;
+    AVFilterInOut *inputs;
+    AVFilterGraph *filter_graph;
+    AVFilterContext *buffersink_ctx;
+    AVFilterContext *buffersrc_ctx;
+    AVFrame *frame_ft;                     //存放filter处理后的数据
     //SDL
     SDL_Window *win;
     SDL_Renderer *ren;
@@ -68,6 +83,7 @@ public:
     //SDL
     int init_sdl();
     void recv_event();
+    int init_filters();
     friend void *sfp_refresh_thread(void *opaque);
 
 };

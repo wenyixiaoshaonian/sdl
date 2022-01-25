@@ -34,6 +34,11 @@ int main(int argc, char** argv)
         printf("alloc_image error...\n");
         return -1;
     }
+    ret = player.init_filters();
+    if(ret) {
+        printf("init_filters error...\n");
+        return -1;
+    }    
     ret = player.init_sdl();
     if(ret) {
         printf("init_sdl error...\n");

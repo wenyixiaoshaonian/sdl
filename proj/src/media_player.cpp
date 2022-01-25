@@ -161,18 +161,20 @@ int media_player::decode_video()
 {
     char buf[1024];
     int ret = 0;
-    printf(">>>>3333 pCodecCtx_v->width = %d  pCodecCtx_v->height = %d\n",pCodecCtx_v->width,pCodecCtx_v->height);
+//    printf(">>>>3333 pCodecCtx_v->width = %d  pCodecCtx_v->height = %d\n",pCodecCtx_v->width,pCodecCtx_v->height);
     ret = avcodec_send_packet(pCodecCtx_v, pkt);
     if (ret < 0) {
         printf("Error sending a packet for decoding pkt->size: %d\n",pkt->size);
         return ret;
     }
-    printf(">>>>4444 pkt->size = %d \n",pkt->size);
+//    printf(">>>>4444 pkt->size = %d \n",pkt->size);
 
     while (ret >= 0) {
         ret = avcodec_receive_frame(pCodecCtx_v, frame);
-        if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF)
+        if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) {
+            printf("EOF~~~\n");
             return 0;
+        }
         else if (ret < 0) {
             printf("Error during decoding\n");
             return ret;
@@ -181,24 +183,32 @@ int media_player::decode_video()
         printf("saving frame %3d\n", pCodecCtx_v->frame_number);
         fflush(stdout);
         
-        printf(">>>==== frame: number : %d   width = %d, height = %d, format = %d\n",
-                        pCodecCtx_v->frame_number,frame->width, frame->height,
-                        pCodecCtx_v->pix_fmt);
-        
+//        printf(">>>==== frame: number : %d   width = %d, height = %d, format = %d\n",
+//                        pCodecCtx_v->frame_number,frame->width, frame->height,
+//                        pCodecCtx_v->pix_fmt);
+#if 1        
         //--------------filter--------------------------------------------------------------
         frame->pts = frame->best_effort_timestamp;
         /* push the decoded frame into the filtergraph */
-        if (av_buffersrc_add_frame_flags(buffersrc_ctx, frame, AV_BUFFERSRC_FLAG_KEEP_REF) < 0) {
-            printf(NULL, AV_LOG_ERROR, "Error while feeding the filtergraph\n");
+        ret = av_buffersrc_add_frame_flags(buffersrc_ctx, frame, AV_BUFFERSRC_FLAG_KEEP_REF);
+        if (ret < 0) 
+            {
+            printf("Error while feeding the filtergraph  ret = %d\n",ret);
             break;
         }        
         /* pull filtered frames from the filtergraph */
         while (1) {
             ret = av_buffersink_get_frame(buffersink_ctx, frame_ft);
-            if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF)
+            if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) {
                 break;
-            if (ret < 0)
-                goto end;
+            }
+            if (ret < 0) {
+                break;
+            }
+            printf(">>>==== 2222 frame: number : %d   width = %d, height = %d, format = %d\n",
+                            pCodecCtx_v->frame_number,frame_ft->width, frame_ft->height,
+                            pCodecCtx_v->pix_fmt);
+
 //            write_frame(filt_frame,outfilename);
 //            av_frame_unref(frame_ft);
             av_image_copy(video_dst_data, video_dst_linesize,
@@ -208,22 +218,22 @@ int media_player::decode_video()
         }
         //--------------filter--------------------------------------------------------------
 
-
+#else
 
         //如果原始格式为yuv，将解码帧复制到目标缓冲区后直接写入
 
         /* copy decoded frame to destination buffer:
          * this is required since rawvideo expects non aligned data */
-//        av_image_copy(video_dst_data, video_dst_linesize,
-//                      (const uint8_t **)(frame->data), frame->linesize,
-//                      pCodecCtx_v->pix_fmt, pCodecCtx_v->width, pCodecCtx_v->height);
-
+        av_image_copy(video_dst_data, video_dst_linesize,
+                      (const uint8_t **)(frame->data), frame->linesize,
+                      pCodecCtx_v->pix_fmt, pCodecCtx_v->width, pCodecCtx_v->height);
+#endif
         /* write to rawvideo file */
  //       fwrite(video_dst_data[0], 1, video_dst_bufsize, video_dst_file);
 
     }
     av_packet_unref(pkt);
-    return ret;
+    return 0;
 }
 
 int media_player::decode_audio()
@@ -265,13 +275,12 @@ int media_player::decode_func()
     int ret;
     AVCodecContext *pCodecCtx;
 
-    printf(">>>>1111 pkt->size = %d \n",pkt->size);
     ret = av_read_frame(ifmt_ctx,pkt);
     if (ret < 0){
         printf("av_read_frame error!!!\n");
         return ret;
     }
-    printf(">>>>2222 pkt->size = %d \n",pkt->size);
+//    printf(">>>>2222 pkt->size = %d \n",pkt->size);
     if(pkt->stream_index == stream_idx_v) {
         ret = decode_video();
         if(ret < 0) {
@@ -287,7 +296,11 @@ int media_player::decode_func()
 int media_player::init_filters()
 {
     int ret;
-    enum AVPixelFormat pix_fmts[] = { AV_PIX_FMT_GRAY8, AV_PIX_FMT_NONE };
+    char args[512];
+    enum AVPixelFormat pix_fmts[] = { pix_fmt, AV_PIX_FMT_NONE };
+    AVRational time_base = ifmt_ctx->streams[stream_idx_v]->time_base;
+
+    filter_descr = "movie=test.bmp[wm];[in][wm]overlay=5:5[out]";
 
     frame_ft = av_frame_alloc();
     if (!frame_ft) {
@@ -304,9 +317,15 @@ int media_player::init_filters()
     //创建graph
     filter_graph = avfilter_graph_alloc();
 
+    snprintf(args, sizeof(args),
+            "video_size=%dx%d:pix_fmt=%d:time_base=%d/%d:pixel_aspect=%d/%d",
+            width, height, pix_fmt,
+            time_base.num, time_base.den,
+            pCodecCtx_v->sample_aspect_ratio.num, pCodecCtx_v->sample_aspect_ratio.den);
+
     //在graph中创建过滤器实例
     //与avfilter_graph_alloc_filter一样，只是再用args 和 opaque初始化这个实例
-    avfilter_graph_create_filter(&buffersrc_ctx, buffersrc, "in",NULL, NULL, filter_graph);
+    avfilter_graph_create_filter(&buffersrc_ctx, buffersrc, "in",args, NULL, filter_graph);
     avfilter_graph_create_filter(&buffersink_ctx, buffersink, "out",NULL, NULL, filter_graph);
     
     ret = av_opt_set_int_list(buffersink_ctx, "pix_fmts", pix_fmts,
@@ -428,7 +447,7 @@ void media_player::recv_event()
                     quit = true;
                     break;
                 default:
-                    printf(">>>===error event type...\n");
+//                    printf(">>>===error event type...\n");
                     break;
             }
         }
