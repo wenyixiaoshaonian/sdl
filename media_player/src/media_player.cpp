@@ -687,7 +687,7 @@ void cmedia_player::video_refresh_timer(void *userdata) {
                     delay = delay*3;
                 }
             }
-            tmp_serial->frame_timer += delay;
+            tmp_serial->frame_timer = delay;
             // 最终真正要延时的时间
             actual_delay = tmp_serial->frame_timer;
             if (actual_delay < 0.010) {
