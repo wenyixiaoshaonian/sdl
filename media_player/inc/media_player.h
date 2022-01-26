@@ -22,6 +22,7 @@ extern "C"
 #include <libswscale/swscale.h>
 #include <libswresample/swresample.h>
 #include <libswscale/swscale_internal.h>
+#include <libswscale/swscale.h>
 
 #include <libavutil/imgutils.h>
 #include <libavutil/samplefmt.h>

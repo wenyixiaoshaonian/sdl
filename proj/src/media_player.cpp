@@ -161,13 +161,11 @@ int media_player::decode_video()
 {
     char buf[1024];
     int ret = 0;
-//    printf(">>>>3333 pCodecCtx_v->width = %d  pCodecCtx_v->height = %d\n",pCodecCtx_v->width,pCodecCtx_v->height);
     ret = avcodec_send_packet(pCodecCtx_v, pkt);
     if (ret < 0) {
         printf("Error sending a packet for decoding pkt->size: %d\n",pkt->size);
         return ret;
     }
-//    printf(">>>>4444 pkt->size = %d \n",pkt->size);
 
     while (ret >= 0) {
         ret = avcodec_receive_frame(pCodecCtx_v, frame);
@@ -299,9 +297,10 @@ int media_player::init_filters()
     char args[512];
     enum AVPixelFormat pix_fmts[] = { pix_fmt, AV_PIX_FMT_NONE };
     AVRational time_base = ifmt_ctx->streams[stream_idx_v]->time_base;
-
-    filter_descr = "movie=test.bmp[wm];[in][wm]overlay=5:5[out]";
-
+//    filter_descr = "movie=demo.jpg[wm];[in][wm]overlay=55:55[out]";
+//    filter_descr = "movie=demo.jpg,colorkey=black:1.0:1.0[wm];[in][wm]overlay=55:55[out]";
+//    filter_descr = "movie=timg.jpeg,scale=iw/2:ih/2[wm];[in][wm]overlay=55:55[out]";   //控制大小
+    filter_descr = "drawtext=fontsize=100:fontfile=FreeSerif.ttf:text='hello world':x=20:y=20:fontcolor=red";
     frame_ft = av_frame_alloc();
     if (!frame_ft) {
         printf("Could not allocate video frame\n");
