@@ -64,6 +64,8 @@ int cmedia_player::open_input_file(const char *filename)
     int ret = 0;
 
     infile = filename;
+
+    avformat_network_init();
     if ((ret = avformat_open_input(&ifmt_ctx, filename, NULL, NULL)) < 0) {
         printf("Cannot open input file\n");
         return ret;
@@ -321,6 +323,7 @@ void *cbx_video_thread(void *arg)
             if (tmp_serial->queue_picture(pFrame, pts) < 0) {
                 break;
             }
+            
             av_packet_unref(packet);
         }
     }
@@ -634,7 +637,9 @@ void cmedia_player::video_display() {
                              vp->frame->data[0], vp->frame->linesize[0],
                              vp->frame->data[1], vp->frame->linesize[1],
                              vp->frame->data[2], vp->frame->linesize[2]);
-
+#if 0        
+        SDL_UpdateTexture(tex, NULL,vp->frame->data[0], vp->frame->linesize[0]);
+#endif
         rect.x = 0;
         rect.y = 0;
         rect.w = pCodecCtx_v->width;
